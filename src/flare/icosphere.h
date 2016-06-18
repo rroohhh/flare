@@ -35,25 +35,6 @@ namespace flr {
                 for(auto face : fcs) {
                     assert(face.vertices().size() == 3);
 
-                    // base_vertex = verts.size() - 1;
-
-                    // for(flr::u64 i = 0; i < face.vertices().size(); i++) {
-                    //     // std::cout << "pushing back " << face.vertices()[i
-                    //     %
-                    //     // 3]
-                    //     //           << " and " << face.vertices()[(i + 1) %
-                    //     3]
-                    //     //           << std::endl;
-                    //     verts.push_back((verts[face.vertices()[i % 3]] +
-                    //                      verts[face.vertices()[(i + 1) % 3]])
-                    //                      /
-                    //                     2);
-                    // }
-
-                    // std::cout << "face: " << face.vertices()[0] << ", "
-                    //           << face.vertices()[1] << ", "
-                    //           << face.vertices()[2] << std::endl;
-
                     a = middlepoint(face.vertices()[0], face.vertices()[1]);
 
                     b = middlepoint(face.vertices()[1], face.vertices()[2]);
@@ -64,30 +45,12 @@ namespace flr {
                     new_fcs.push_back({{face.vertices()[1], b, a}});
                     new_fcs.push_back({{face.vertices()[2], c, b}});
                     new_fcs.push_back({{a, b, c}});
-
-                    // for(flr::u64 i = 0; i < face.vertices().size(); i++) {
-                    //     // std::cout << "pushing back " << i << " and "
-                    //     //           << base_vertex + i + 1 << " and "
-                    //     //           << base_vertex + ((i + 2) % 3) + 1 <<
-                    //     //           std::endl;
-
-                    //     new_fcs.push_back(
-                    //         {{face.vertices()[i],
-                    //           middlepoint(face.vertices()[i],
-                    //                       face.vertices()[(i + 1) % 3]),
-                    //           middlepoint(face.vertices()[(i + 2) % 3],
-                    //                       face.vertices()[(i + 3) % 3])}});
-                    // }
-
-                    // new_fcs.push_back(
-                    //     {{base_vertex + 1, base_vertex + 2, base_vertex +
-                    //     3}});
                 }
 
                 fcs = std::vector<flr::Face>(new_fcs);
                 new_fcs.clear();
 
-                // for(auto & vert : verts) { vert /= vert.norm() / radius; }
+                for(auto & vert : verts) { vert /= vert.norm() / radius; }
             }
         }
 
@@ -95,12 +58,9 @@ namespace flr {
             u64 smallerIndex = a < b ? a : b;
             u64 greaterIndex = a < b ? b : a;
             u64 key          = (smallerIndex << 32) + greaterIndex;
-            // std::cout << "key for middle of " << smallerIndex << " and "
-            //           << greaterIndex << " is " << key << std::endl;
             auto p = points.find(key);
 
             if(p != points.end()) {
-                // std::cout << "key existed: " << p->second << std::endl;
                 return p->second;
             }
 
