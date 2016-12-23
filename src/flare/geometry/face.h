@@ -1,7 +1,7 @@
 #ifndef _FLR_FACE_H
 #define _FLR_FACE_H
 
-#include "flare_class.h"
+#include "../type/introspect/flare_class.h"
 #include <vector>
 
 namespace flr {
@@ -9,7 +9,7 @@ namespace flr {
     public:
         Face(std::vector<u64> vertices) : vertices_(vertices) {}
 
-		auto vertices() {
+		auto vertices() const {
 			return vertices_;
 		}
     private:

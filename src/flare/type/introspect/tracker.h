@@ -6,15 +6,15 @@
 #include <iostream>
 #include <map>
 
-#include "null_type.h"
+#include "../null_type.h"
 #include "type_name.h"
-#include "types.h"
+#include "../types.h"
 
 namespace flr {
     namespace internal {
         struct status_info {
-            flr::u64 constructed = 0;
-            flr::u64 alive       = 0;
+            flr::s64 constructed = 0;
+            flr::s64 alive       = 0;
         };
 
         class TrackerBase {

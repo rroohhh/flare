@@ -1,7 +1,7 @@
 #ifndef _FLR_TYPE_NAME_H
 #define _FLR_TYPE_NAME_H
 
-#include "static_string.h"
+#include "../../static/static_string.h"
 
 namespace flr {
     template <typename T>

@@ -2,7 +2,6 @@
 #define _FLR_NULL_TYPE_H
 
 // ToDo(robin): Is this everything needed?
-#include "flare_class.h"
 
 namespace flr {
 	class NullType {

@@ -4,8 +4,8 @@
 #include "tracker.h"
 
 #define FLARE_CLASS(name) class name : private flr::internal::FlareClass<name>
-#define FLARE_UNION(name) union name : private flr::internal::FlareClass<name>
-#define FLARE_STRUCT(name) struct name : private flr::internal::FlareClass<name>
+// #define FLARE_UNION(name) union name : private flr::internal::FlareClass<name>
+// #define FLARE_STRUCT(name) struct name : private flr::internal::FlareClass<name>
 
 namespace flr {
     namespace internal {

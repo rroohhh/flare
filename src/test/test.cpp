@@ -1,253 +1,424 @@
 #include <iostream>
 
 // #include "../flare/average.h"
-#include "../flare/icosphere.h"
+#include "../flare/geometry/icosphere.h"
+#include "../flare/type/introspect/tracker.h"
 #include <iterator>
 #include <list>
 #include <vector>
+// Link statically with GLEW
+#define GLEW_STATIC
 
-template <bool B, class T = void>
-struct enable_if {};
+// Headers
+#include <GL/glew.h>
+#include <SFML/Window.hpp>
+#include <chrono>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
-template <class T>
-struct enable_if<true, T> {
-    typedef T type;
-};
+// Shader sources
+const GLchar * vertexSource =
+    "#version 330 core\n"
+    "in vec3 position;"
+    "in vec3 color;"
+    "in vec2 texcoord;"
+    "out vec3 Color;"
+    "out vec2 Texcoord;"
+    "uniform mat4 model;"
+    "uniform mat4 view;"
+    "uniform mat4 proj;"
+    "uniform float scale;"
+    "void main()"
+    "{"
+    "    Color = color;"
+    "    Texcoord = texcoord;"
+    "    gl_Position = proj * view * model * vec4(position * scale, 1.0);"
+    "}";
+const GLchar * fragmentSource = "#version 330 core\n"
+                                "in float vertexID;"
+                                "in vec3 Color;"
+                                "in vec2 Texcoord;"
+                                "out vec4 outColor;"
+                                "void main()"
+                                "{"
+                                "        outColor = vec4(Color, 1.0);"
+                                "}";
 
-template <class T, class U>
-struct is_same : std::false_type {};
+template <typename T, typename U, typename V>
+auto clamp(const T && x, const U && min, const V && max) {
+    auto ret        = x;
+    if(x < min) ret = min;
+    if(x > max) ret = max;
 
-template <class T>
-struct is_same<T, T> : std::true_type {};
+    return ret;
+}
 
-template <typename... Ts>
-struct make_void {
-    typedef void type;
-};
+template <typename T, typename U, typename V>
+auto smoothstep(const T & edge0, const U & edge1, const V & x) {
+    x = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return x * x * (3 - 2 * x);
+}
 
-template <typename... Ts>
-using void_t = typename make_void<Ts...>::type;
+template <typename T, typename U, typename V>
+auto smootherstep(const T & edge0, const U & edge1, const V & x) {
+    auto tmp = x;
+    tmp      = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return tmp * tmp * tmp * (tmp * (tmp * 6 - 15) + 10);
+}
 
-template <class, class = void_t<>>
-struct hasBegin_ : std::false_type {};
+void prepareBuffers(int vao, int vbo, int ebo, IcoSphere & s) {
+    std::vector<GLfloat> vertices(s.points().size() * 8, 0.0);
+    std::vector<GLuint>  elems(s.faces().size() * 3, 0);
+    int                  i = 0;
 
-template <class T>
-struct hasBegin_<T, void_t<decltype(std::declval<T>().begin())>>
-    : std::true_type {};
+    for(const auto & vertex : s.points()) {
+        // std::cout << vertex << std::endl;
+        vertices[i++] = vertex.x;
+        vertices[i++] = vertex.y;
+        vertices[i++] = vertex.z;
 
-template <typename UnnamedType>
-struct container {
-private:
-    template <typename... Params>
-    constexpr auto test_validity(int /* unused */)
-        -> decltype(std::declval<UnnamedType>()(std::declval<Params>()...),
-                    std::true_type()) {
-        return std::true_type();
+        // Color
+        vertices[i++] = std::abs(vertex.y);
+        vertices[i++] = std::abs(vertex.z);
+        vertices[i++] = std::abs(vertex.x);
+
+        // vertices[i++] = 1;
+        // vertices[i++] = 0;
+        // vertices[i++] = 0;
+
+        // unused
+        vertices[i++] = 0;
+        vertices[i++] = 0;
     }
 
-    template <typename... Params>
-    constexpr std::false_type test_validity(...) {
-        return std::false_type();
+    i = 0;
+    for(const auto & face : s.faces()) {
+        for(const auto & elem : face.vertices()) { elems[i++] = elem; }
     }
 
-public:
-    template <typename... Params>
-    constexpr auto operator()(Params &&...) {
-        return test_validity<Params...>(int());
-    }
-};
+    glBindVertexArray(vao);
 
-template <typename UnnamedType>
-constexpr auto is_valid_impl(UnnamedType && t) {
-    return container<UnnamedType>();
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, elems.size() * sizeof(GLuint),
+                 elems.data(), GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(GLfloat),
+                 vertices.data(), GL_STATIC_DRAW);
+
+    // glBindVertexArray(0);
+    // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    // glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-#define __NARG__(...) __NARG_I_(, ##__VA_ARGS__, __RSEQ_N())
-#define __NARG_I_(...) __ARG_N(__VA_ARGS__)
-#define __ARG_N(_Z, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13,    \
-                _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25,    \
-                _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37,    \
-                _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49,    \
-                _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61,    \
-                _62, _63, N, ...)                                              \
-    N
+int main() {
+    sf::ContextSettings settings;
+    settings.attributeFlags    = sf::ContextSettings::Core;
+	settings.majorVersion      = 4;
+	settings.minorVersion      = 5;
+	settings.antialiasingLevel = 0;
+	settings.depthBits         = 24;
+	settings.stencilBits       = 8;
+	 
 
-#define __RSEQ_N()                                                             \
-    63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46,    \
-        45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29,    \
-        28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12,    \
-        11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
+	sf::Window window(sf::VideoMode(800, 600, 16), "OpenGL",
+                      sf::Style::Titlebar | sf::Style::Close, settings);
 
-#define _VFUNC_(name, n) name##n
-#define _VFUNC(name, n) _VFUNC_(name, n)
-#define VFUNC(func, ...) _VFUNC(func, __NARG__(__VA_ARGS__))(__VA_ARGS__)
+    // Initialize GLEW
+    glewExperimental = GL_TRUE;
+    glewInit();
 
-#define EXPAND(X) X
-#define FIRSTARG(X, ...) (X)
-#define RESTARGS(X, ...) (__VA_ARGS__)
-
-#define FOREACH(MACRO, LIST) FOREACH_(__NARG__ LIST, MACRO, LIST)
-
-#define FOREACH_(N, M, LIST) FOREACH__(N, M, LIST)
-#define FOREACH__(N, M, LIST) FOREACH_##N(M, LIST)
-#define FOREACH_0(M, LIST)
-#define FOREACH_1(M, LIST) M LIST
-#define FOREACH_2(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_1(M, RESTARGS LIST)
-#define FOREACH_3(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_2(M, RESTARGS LIST)
-#define FOREACH_4(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_3(M, RESTARGS LIST)
-#define FOREACH_5(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_4(M, RESTARGS LIST)
-#define FOREACH_6(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_5(M, RESTARGS LIST)
-#define FOREACH_7(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_6(M, RESTARGS LIST)
-#define FOREACH_8(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_7(M, RESTARGS LIST)
-#define FOREACH_9(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_8(M, RESTARGS LIST)
-#define FOREACH_10(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_9(M, RESTARGS LIST)
-#define FOREACH_11(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_10(M, RESTARGS LIST)
-#define FOREACH_12(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_11(M, RESTARGS LIST)
-#define FOREACH_13(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_12(M, RESTARGS LIST)
-#define FOREACH_14(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_13(M, RESTARGS LIST)
-#define FOREACH_15(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_14(M, RESTARGS LIST)
-#define FOREACH_16(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_15(M, RESTARGS LIST)
-#define FOREACH_17(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_16(M, RESTARGS LIST)
-#define FOREACH_18(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_17(M, RESTARGS LIST)
-#define FOREACH_19(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_18(M, RESTARGS LIST)
-#define FOREACH_20(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_19(M, RESTARGS LIST)
-#define FOREACH_21(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_20(M, RESTARGS LIST)
-#define FOREACH_22(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_21(M, RESTARGS LIST)
-#define FOREACH_23(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_22(M, RESTARGS LIST)
-#define FOREACH_24(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_23(M, RESTARGS LIST)
-#define FOREACH_25(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_24(M, RESTARGS LIST)
-#define FOREACH_26(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_25(M, RESTARGS LIST)
-#define FOREACH_27(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_26(M, RESTARGS LIST)
-#define FOREACH_28(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_27(M, RESTARGS LIST)
-#define FOREACH_29(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_28(M, RESTARGS LIST)
-#define FOREACH_30(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_29(M, RESTARGS LIST)
-#define FOREACH_31(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_30(M, RESTARGS LIST)
-#define FOREACH_32(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_31(M, RESTARGS LIST)
-#define FOREACH_33(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_32(M, RESTARGS LIST)
-#define FOREACH_34(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_33(M, RESTARGS LIST)
-#define FOREACH_35(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_34(M, RESTARGS LIST)
-#define FOREACH_36(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_35(M, RESTARGS LIST)
-#define FOREACH_37(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_36(M, RESTARGS LIST)
-#define FOREACH_38(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_37(M, RESTARGS LIST)
-#define FOREACH_39(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_38(M, RESTARGS LIST)
-#define FOREACH_40(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_39(M, RESTARGS LIST)
-#define FOREACH_41(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_40(M, RESTARGS LIST)
-#define FOREACH_42(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_41(M, RESTARGS LIST)
-#define FOREACH_43(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_42(M, RESTARGS LIST)
-#define FOREACH_44(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_43(M, RESTARGS LIST)
-#define FOREACH_45(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_44(M, RESTARGS LIST)
-#define FOREACH_46(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_45(M, RESTARGS LIST)
-#define FOREACH_47(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_46(M, RESTARGS LIST)
-#define FOREACH_48(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_47(M, RESTARGS LIST)
-#define FOREACH_49(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_48(M, RESTARGS LIST)
-#define FOREACH_50(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_49(M, RESTARGS LIST)
-#define FOREACH_51(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_50(M, RESTARGS LIST)
-#define FOREACH_52(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_51(M, RESTARGS LIST)
-#define FOREACH_53(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_52(M, RESTARGS LIST)
-#define FOREACH_54(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_53(M, RESTARGS LIST)
-#define FOREACH_55(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_54(M, RESTARGS LIST)
-#define FOREACH_56(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_55(M, RESTARGS LIST)
-#define FOREACH_57(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_56(M, RESTARGS LIST)
-#define FOREACH_58(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_57(M, RESTARGS LIST)
-#define FOREACH_59(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_58(M, RESTARGS LIST)
-#define FOREACH_60(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_59(M, RESTARGS LIST)
-#define FOREACH_61(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_60(M, RESTARGS LIST)
-#define FOREACH_62(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_61(M, RESTARGS LIST)
-#define FOREACH_63(M, LIST) EXPAND(M FIRSTARG LIST) FOREACH_62(M, RESTARGS LIST)
-
-#define FOREACH_BUT_FIRST(M1, M2, FIRST, ...)                                  \
-    M1(FIRST) FOREACH(M2, (__VA_ARGS__))
-
-#define TO_ARG(X) , TO_FIRST_ARG(X)
-#define TO_FIRST_ARG(X) auto && X
-
-#define SINGLE_ARG(...) __VA_ARGS__
-#define EXPRESSIONS(...) SINGLE_ARG(__VA_ARGS__)
-
-#define is_valid(expr, ...)                                                    \
-    is_valid_impl([](FOREACH_BUT_FIRST(TO_FIRST_ARG, TO_ARG,                   \
-                                       __VA_ARGS__)) -> decltype(expr) {})
-#define valid(CHECKER) decltype(CHECKER)::value
-
-auto hasBegin     = is_valid(t.begin(), t);
-auto hasEnd       = is_valid(t.end(), t);
-auto hasIncrement = is_valid(++t, t);
-auto hasDeref     = is_valid(*t, t);
-auto canRangeBasedFor =
-    is_valid(EXPRESSIONS(hasBegin(t), hasEnd(t), hasIncrement(t.begin()),
-                         hasDeref(t.begin())),
-             t);
-
-template <typename T>
-auto average(T t) -> typename enable_if<valid(canRangeBasedFor(t)),
-                                        decltype(*(t.begin()))>::type {
-    std::cout << "can do stuff ";
-    return *t.begin();
-}
-
-template <typename T>
-auto average(T t) -> typename enable_if<!valid(canRangeBasedFor(t))>::type {
-    static_assert(is_same<T, T *>(),
-                  "average has to be used with a type "
-                  "having begin(), end(), operator *begin() and ++begin()");
-}
-
-#define RETURN(X) X
-#define where(expr, return_type) typename enable_if<(expr), return_type>::type
-
-template <int i>
-where(i > 5, RETURN(char)) variant() {
-    return 'y';
-}
-
-template <int i>
-where(!(i > 5), RETURN(char)) variant() {
-    return 'n';
-}
-
-struct test {
-    void begin();
-    void end();
-};
-
-int main(int argc, char ** argv) {
     flr::f64 t = (1.0 + sqrt(5.0)) / 2.0;
 
-    std::vector<flr::v3> verts({{-1, t, 0},
-                                {1, t, 0},
-                                {-1, -t, 0},
-                                {1, -t, 0},
-                                {0, -1, t},
-                                {0, 1, t},
-                                {0, -1, -t},
-                                {0, 1, -t},
-                                {t, 0, -1},
-                                {t, 0, 1},
-                                {-t, 0, -1},
-                                {-t, 0, 1}});
-
-    std::vector<flr::Face> fcs = {
+    std::vector<flr::v3> verts{{-1, t, 0}, {1, t, 0}, {-1, -t, 0}, {1, -t, 0},
+                               {0, -1, t}, {0, 1, t}, {0, -1, -t}, {0, 1, -t},
+                               {t, 0, -1}, {t, 0, 1}, {-t, 0, -1}, {-t, 0, 1}};
+    std::vector<flr::Face> fcs{
         {{0, 11, 5}}, {{0, 5, 1}},  {{0, 1, 7}},   {{0, 7, 10}}, {{0, 10, 11}},
-
         {{1, 5, 9}},  {{5, 11, 4}}, {{11, 10, 2}}, {{10, 7, 6}}, {{7, 1, 8}},
-
         {{3, 9, 4}},  {{3, 4, 2}},  {{3, 2, 6}},   {{3, 6, 8}},  {{3, 8, 9}},
-
         {{4, 9, 5}},  {{2, 4, 11}}, {{6, 2, 10}},  {{8, 6, 7}},  {{9, 8, 1}}};
 
-    // std::vector<flr::Face> fcs = {
-    //     {{0, 1, 2}}, {{0, 1, 3}}, {{0, 2, 3}}, {{1, 2, 3}}};
+    flr::Mesh      m(verts, fcs);
+    flr::IcoSphere s(m, 0.4, 6);
 
-    // std::vector<flr::v3> verts = {
-    //     {-1, -1, -1}, {1, 1, -1}, {1, -1, 1}, {-1, 1, 1}};
+    std::vector<v3> directions{{0, 1, 0}, {0, 0, 1}, {0, 1, 1}};
 
-    // std::vector<flr::Face> fcs = {
-    //     {{0, 1, 2}}};
+    for(auto & direction : directions) { direction /= direction.norm(); }
 
-    // std::vector<flr::v3> verts = {
-    //     {-1, -1, -1}, {1, 1, -1}, {1, -1, 1}};
+    // GLfloat * vertices      = new GLfloat[s.points().size() * 8];
+    f64 multiplicator = 5;
 
-    flr::IcoSphere s(flr::Mesh(verts, fcs), 1,
-                     std::strtoull(argv[1], &argv[std::strlen(argv[1])], 10));
-    s.printCSV();
+    for(auto & vertex : s.points()) {
+        for(const auto & direction : directions) {
+            v3 tmp = vertex;
+            multiplicator =
+                tmp.dot(direction) / (tmp.norm() * direction.norm());
+            if(multiplicator < 0.9) continue;
+
+            multiplicator = smootherstep(0.9, 1.0, multiplicator);
+            // std::cout << multiplicator << std::endl;
+
+            vertex += direction * multiplicator;
+        }
+    }
+
+    // GLuint * elems = new GLuint[s.faces().size() * 3];
+
+    // Create Vertex Array Object
+    GLuint vao;
+    glGenVertexArrays(1, &vao);
+
+    GLuint ebo;
+    glGenBuffers(1, &ebo);
+
+    GLuint vbo;
+    glGenBuffers(1, &vbo);
+
+    // GLuint eboHelp;
+    // glGenBuffers(1, &eboHelp);
+
+    // GLuint vboHelp;
+    // glGenBuffers(1, &vboHelp);
+
+    // flr::IcoSphere sHelp(m, 0.4, 6);
+
+    // for(auto & point : sHelp.points()) { point += {1, 1, 1}; }
+
+    // prepareBuffers(vao, vboHelp, eboHelp, sHelp);
+    prepareBuffers(vao, vbo, ebo, s);
+
+    // Create and compile the vertex shader
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, &vertexSource, NULL);
+    glCompileShader(vertexShader);
+
+    GLint isCompiled = 0;
+    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &isCompiled);
+    if(isCompiled == GL_FALSE) {
+        GLint maxLength = 0;
+        glGetShaderiv(vertexShader, GL_INFO_LOG_LENGTH, &maxLength);
+
+        std::vector<GLchar> errorLog(maxLength);
+        glGetShaderInfoLog(vertexShader, maxLength, &maxLength, &errorLog[0]);
+
+        std::cerr << &errorLog[0] << std::endl;
+
+        glDeleteShader(vertexShader);
+
+        std::exit(EXIT_FAILURE);
+    }
+
+    // Create and compile the fragment shader
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &fragmentSource, NULL);
+    glCompileShader(fragmentShader);
+
+    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &isCompiled);
+    if(isCompiled == GL_FALSE) {
+        GLint maxLength = 0;
+        glGetShaderiv(fragmentShader, GL_INFO_LOG_LENGTH, &maxLength);
+
+        std::vector<GLchar> errorLog(maxLength);
+        glGetShaderInfoLog(fragmentShader, maxLength, &maxLength, &errorLog[0]);
+
+        std::cerr << &errorLog[0] << std::endl;
+
+        glDeleteShader(fragmentShader);
+
+        std::exit(EXIT_FAILURE);
+    }
+
+    // Link the vertex and fragment shader into a shader program
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glBindFragDataLocation(shaderProgram, 0, "outColor");
+    glLinkProgram(shaderProgram);
+    glUseProgram(shaderProgram);
+
+    // Specify the layout of the vertex data
+    GLint posAttrib = glGetAttribLocation(shaderProgram, "position");
+    glEnableVertexAttribArray(posAttrib);
+    glVertexAttribPointer(posAttrib, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat),
+                          0);
+
+    GLint colAttrib = glGetAttribLocation(shaderProgram, "color");
+    glEnableVertexAttribArray(colAttrib);
+    glVertexAttribPointer(colAttrib, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat),
+                          reinterpret_cast<void *>((3 * sizeof(GLfloat))));
+
+    GLint texAttrib = glGetAttribLocation(shaderProgram, "texcoord");
+    glEnableVertexAttribArray(texAttrib);
+    glVertexAttribPointer(texAttrib, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat),
+                          reinterpret_cast<void *>(6 * sizeof(GLfloat)));
+
+    GLint uniModel = glGetUniformLocation(shaderProgram, "model");
+
+    // Set up projection
+    glm::mat4 view =
+        glm::lookAt(glm::vec3(0.0f, 2.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+                    glm::vec3(0.0f, 0.0f, 1.0f));
+    GLint uniView = glGetUniformLocation(shaderProgram, "view");
+    glUniformMatrix4fv(uniView, 1, GL_FALSE, glm::value_ptr(view));
+
+    glm::mat4 proj =
+        glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 1.0f, 10.0f);
+    GLint uniProj = glGetUniformLocation(shaderProgram, "proj");
+    glUniformMatrix4fv(uniProj, 1, GL_FALSE, glm::value_ptr(proj));
+
+    glEnable(GL_DEPTH_TEST);
+
+    glm::mat4 model;
+    glm::vec4 xAxis(0.0f, 0.0f, 1.0f, 0.0f);
+    glm::vec4 yAxis(1.0f, 0.0f, 0.0f, 0.0f);
+    model = glm::rotate(model, glm::radians(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    glUniformMatrix4fv(uniModel, 1, GL_FALSE, glm::value_ptr(model));
+
+    bool  running  = true;
+    bool  leftDown = false;
+    s64   originX = 0, originY = 0, totalX = 0, totalY = 0;
+    float ratio    = 800.0 / 600.0;
+    float distance = 0.4f;
+    glUniform1f(glGetUniformLocation(shaderProgram, "scale"), distance);
+
+    flr::internal::TrackerInfo::print_infos();
+
+    while(running) {
+        sf::Event windowEvent;
+        while(window.pollEvent(windowEvent)) {
+            switch(windowEvent.type) {
+            default: /* ignore */
+                break;
+            case sf::Event::MouseWheelScrolled:
+                if(windowEvent.mouseWheelScroll.delta == 1)
+                    distance *= 0.95;
+                else
+                    distance *= 1.05;
+
+                glUniform1f(glGetUniformLocation(shaderProgram, "scale"),
+                            distance);
+                break;
+            case sf::Event::MouseButtonPressed:
+                if(windowEvent.mouseButton.button == sf::Mouse::Left) {
+                    leftDown = true;
+                    originX  = windowEvent.mouseButton.x;
+                    originY  = windowEvent.mouseButton.y;
+                }
+                break;
+            case sf::Event::MouseButtonReleased:
+                if(windowEvent.mouseButton.button == sf::Mouse::Left)
+                    leftDown = false;
+                break;
+            case sf::Event::MouseMoved:
+                if(leftDown) {
+                    s64 currentX = windowEvent.mouseMove.x;
+                    s64 currentY = windowEvent.mouseMove.y;
+                    s64 deltaX   = (originX - currentX) * 0.5;
+                    s64 deltaY   = (originY - currentY) * 0.5;
+                    totalX += deltaX;
+                    totalY += deltaY;
+
+                    // auto tmp = model * xAxis;
+                    // std::cout << "xAxis " << v3{tmp.x, tmp.y, tmp.z}
+                    //           << std::endl;
+                    // tmp = model * yAxis;
+                    // std::cout << "yAxis " << v3{tmp.x, tmp.y, tmp.z}
+                    //           << std::endl;
+
+                    model = glm::rotate(
+                        model, glm::radians(-float(deltaX)),
+                        glm::vec3(glm::normalize(glm::inverse(model) * xAxis)));
+
+                    model = glm::rotate(
+                        model, glm::radians(float(deltaY)),
+                        glm::vec3(glm::normalize(glm::inverse(model) * yAxis)));
+
+                    // model = tmpModel2 * tmpModel;
+                    glUniformMatrix4fv(uniModel, 1, GL_FALSE,
+                                       glm::value_ptr(model));
+
+                    originX = currentX;
+                    originY = currentY;
+                }
+                // 				glm::vec3 va =
+                // get_arcball_vector(originX,
+                // originX,);
+                // glm::vec3 vb = get_arcball_vector( cur_mx,  cur_my);
+                // float angle = acos(min(1.0f, glm::dot(va, vb)));
+                // glm::vec3 axis_in_camera_coord = glm::cross(va, vb);
+                // glm::mat3 camera2object =
+                // glm::inverse(glm::mat3(transforms[MODE_CAMERA]) *
+                // glm::mat3(mesh.object2world));
+                // glm::vec3 axis_in_object_coord = camera2object *
+                // axis_in_camera_coord;
+                // mesh.object2world = glm::rotate(mesh.object2world,
+                // glm::degrees(angle), axis_in_object_coord);
+                // last_mx = cur_mx;
+                // last_my = cur_my;
+
+                // glm::mat4 tmpModel, tmpModel2;
+                break;
+            case sf::Event::Resized:
+                glViewport(0, 0, windowEvent.size.width,
+                           windowEvent.size.height);
+
+                ratio = float(windowEvent.size.width) /
+                        float(windowEvent.size.height);
+
+                proj =
+                    glm::perspective(glm::radians(45.0f), ratio, 1.0f, 10.0f);
+
+                glUniformMatrix4fv(uniProj, 1, GL_FALSE, glm::value_ptr(proj));
+                break;
+            case sf::Event::Closed:
+                running = false;
+                break;
+            }
+        }
+
+        // Clear the screen to black
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Draw sphere
+        // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+        // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo);
+        // glEnableVertexAttribArray(posAttrib);
+        // glVertexAttribPointer(posAttrib, 3, GL_FLOAT, GL_FALSE,
+        //                       8 * sizeof(GLfloat), 0);
+
+        // glEnableVertexAttribArray(colAttrib);
+        // glVertexAttribPointer(colAttrib, 3, GL_FLOAT, GL_FALSE,
+        //                       8 * sizeof(GLfloat),
+		//                       reinterpret_cast<void *>((3 *
+		//                       sizeof(GLfloat))));
+
+        // glEnableVertexAttribArray(texAttrib);
+        // glVertexAttribPointer(texAttrib, 2, GL_FLOAT, GL_FALSE,
+        //                       8 * sizeof(GLfloat),
+        //                       reinterpret_cast<void *>(6 * sizeof(GLfloat)));
+        glDrawElements(GL_TRIANGLES, s.faces().size() * 3, GL_UNSIGNED_INT, 0);
+
+        // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, eboHelp);
+        // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboHelp);
+        // glDrawElements(GL_TRIANGLES, sHelp.faces().size() * 3,
+        // GL_UNSIGNED_INT, 0);
+
+        // Swap buffers
+        window.display();
+    }
+
+    glDeleteProgram(shaderProgram);
+    glDeleteShader(fragmentShader);
+    glDeleteShader(vertexShader);
+
+    glDeleteBuffers(1, &vbo);
+
+    glDeleteVertexArrays(1, &vao);
+
+    window.close();
+
+    return 0;
 }

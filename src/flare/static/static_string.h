@@ -1,7 +1,7 @@
 #ifndef _FLR_STATIC_STRING_H
 #define _FLR_STATIC_STRING_H
 
-#include "types.h"
+#include "../type/types.h"
 #include <cstddef>
 #include <cstring>
 #include <ostream>
