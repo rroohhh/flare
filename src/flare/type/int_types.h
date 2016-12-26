@@ -1,5 +1,5 @@
-#ifndef _INTTYPES_H
-#define _INTTYPES_H
+#ifndef _INT_TYPES_H
+#define _INT_TYPES_H
 
 // ToDo(robin): do this stuff myself
 // ToDo(robin): does fuck up?
